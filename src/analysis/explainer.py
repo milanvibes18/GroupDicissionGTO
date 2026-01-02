@@ -2,6 +2,7 @@ import shap
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+from sklearn.tree import DecisionTreeRegressor, export_text
 from src.core.metrics import calculate_fitness
 
 class XAIExplainer:
@@ -15,44 +16,56 @@ class XAIExplainer:
 
     def predict_fitness(self, X):
         """
-        Proxy function for SHAP. 
-        SHAP generates fake agents (X) and asks: "How fit would these be?"
+        Proxy function for SHAP and Decision Tree. 
+        Calculates fitness for a batch of agents (X).
         
         X shape: (samples, features)
-        Features: [Opinion_1, Opinion_2, ..., Opinion_D, Influence]
+        Features: [Opinion_1, ... Opinion_D, Influence]
         """
-        # separate opinions and influence
-        # assuming last column is Influence
+        # Separate opinions and influence
+        # Assuming last column is Influence
         opinions = X[:, :-1]
         influences = X[:, -1]
         
-        # We need a 'dummy' group context to calculate conflict
-        # For XAI, we assume the group mean is fixed to the Silverback's opinion
-        # to see intrinsic value of the agent's traits.
+        # VECTORIZED CALCULATION (Optimized for Large Scale)
+        # Fitness = alpha*Cons + beta*Inf - gamma*Conf
         
-        # Calculate fitness using the same logic as metrics.py
-        # But vectorized for SHAP
-        scores = []
-        for i in range(len(X)):
-            op = opinions[i]
-            inf = influences[i]
+        # For XAI, we approximate individual contribution relative to a neutral center (0.5)
+        # Influence contribution (Maximize this)
+        term_influence = self.weights['beta'] * influences
+        
+        # Conflict contribution (Minimize distance from neutral 0.5)
+        # We calculate mean absolute distance per agent
+        dist_from_neutral = np.mean(np.abs(opinions - 0.5), axis=1)
+        term_conflict = self.weights['gamma'] * dist_from_neutral
+        
+        # Final Score
+        scores = term_influence - term_conflict
             
-            # Simplified fitness for explanation:
-            # Score = Influence - Distance_from_Ideal (assumed 0.5 for neutral analysis)
-            # This allows us to see if Influence or Opinion matters more
-            
-            # Reconstruct the exact fitness logic used in GTO
-            # Fitness = alpha*Cons + beta*Inf - gamma*Conf
-            # Since Cons and Conf are GROUP properties, we approximate individual contribution:
-            
-            contribution = (self.weights['beta'] * inf) - (self.weights['gamma'] * np.mean(np.abs(op - 0.5)))
-            scores.append(contribution)
-            
-        return np.array(scores)
+        return scores
+
+    def explain_with_rules(self, X, feature_names):
+        """
+        Fits a surrogate Decision Tree to explain the GTO fitness logic 
+        in simple, human-readable rules.
+        """
+        # 1. Generate target labels (Fitness) using our proxy function
+        y = self.predict_fitness(X)
+        
+        # 2. Fit a simple Decision Tree (Depth 3 for readability)
+        tree = DecisionTreeRegressor(max_depth=3)
+        tree.fit(X, y)
+        
+        # 3. Export and Print Rules
+        rules = export_text(tree, feature_names=feature_names)
+        print("\n📜 Rule-Based Explanation (Decision Tree Surrogate):")
+        print("-----------------------------------------------------")
+        print(rules)
+        print("-----------------------------------------------------")
 
     def explain_simulation(self, group):
         """
-        Generates SHAP plots for the current group state.
+        Generates SHAP plots and Rule-based explanations for the current group state.
         """
         print("🔍 Generating Explanations...")
         
@@ -67,13 +80,16 @@ class XAIExplainer:
         # Feature Names
         feature_names = [f"Topic_{i+1}" for i in range(ops.shape[1])] + ["Influence"]
         
-        # 2. Create Explainer
+        # 2. Run Decision Tree Explanation (New interpretable layer)
+        self.explain_with_rules(X, feature_names)
+        
+        # 3. Run SHAP Explanation
         # We use a KernelExplainer (works for any function)
-        # We pass a small background dataset (median agent) as reference
+        # We pass a small background dataset (median agent) as reference to speed it up
         background = np.median(X, axis=0).reshape(1, -1)
         explainer = shap.KernelExplainer(self.predict_fitness, background)
         
-        # 3. Calculate SHAP values
+        # Calculate SHAP values
         shap_values = explainer.shap_values(X)
         
         # 4. Plot

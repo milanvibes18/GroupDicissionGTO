@@ -25,57 +25,22 @@ class GorillaTroopsOptimizer:
         self.silverback_position = None
 
     def _get_fitness(self, opinions, influences):
-        """Helper to calculate fitness for a batch of agents."""
-        # We calculate fitness for each agent individually to see if they improved
-        # Note: In strict group optimization, fitness is often a group property.
-        # However, GTO requires individual fitness to decide if an agent 'moves'.
-        # We interpret individual fitness as: "How well does this agent's opinion 
-        # align with the group goals?"
+        """
+        Helper to calculate fitness for a batch of agents (Vectorized).
+        Returns: A numpy array of scores of shape (N,)
+        """
+        # Vectorized calculation of distance from mean
+        # mean_op shape: (D,)
+        mean_op = np.mean(opinions, axis=0)
         
-        # This is a simplification: We calculate the GLOBAL fitness if the group 
-        # adopted this agent's opinion as the consensus.
-        fitness_scores = []
-        for i in range(len(opinions)):
-            # Create a hypothetical group where everyone agrees with Agent i
-            # Or evaluate Agent i's contribution. 
-            # For this simulation, we use the global fitness function on the current state
-            # but usually GTO needs a scalar per agent.
-            
-            # APPROACH: Fitness = How close is this agent to the desired state?
-            # We use the global metric function defined in metrics.py
-            # But we pass the Current Group State to evaluate the *Group's* performance
-            # This part is tricky in Social Modeling. 
-            # We will use the standard metric: Fitness of the current CONFIGURATION.
-            pass
+        # dists shape: (N,) - Norm of every row relative to mean
+        dists = np.linalg.norm(opinions - mean_op, axis=1)
         
-        # BETTER APPROACH FOR SOCIAL GTO:
-        # Fitness is calculated for the *Current Group State*.
-        # But to determine the Silverback, we need to know who has the "Best Opinion".
-        # We assume the 'Silverback' is the agent whose opinion maximizes the fitness
-        # if they were the leader.
-        
-        scores = []
-        for i, op in enumerate(opinions):
-            # Create a temporary view where this agent is the 'center'
-            # For simplicity, we just use the global fitness function on the current
-            # group state, but weighted by this agent's influence.
+        # Score = Influence - Distance (Normalized)
+        # This identifies high-status agents who represent the consensus.
+        scores = influences - dists
             
-            # Let's trust the metric function. 
-            # We pass the whole group opinions, but we need a score PER AGENT.
-            # We will define Agent Fitness as: Influence * (Similarity to Mean) - Conflict
-            # This identifies high-status agents who represent the consensus.
-            
-            # Simple Proxy for GTO selection:
-            # An agent is a "better" gorilla if they have high influence 
-            # and are close to the group center (Low Conflict).
-            mean_op = np.mean(opinions, axis=0)
-            dist = np.linalg.norm(op - mean_op)
-            
-            # Score = Influence - Distance (Normalized)
-            score = influences[i] - dist
-            scores.append(score)
-            
-        return np.array(scores)
+        return scores
 
     def calculate_global_fitness(self, group):
         """Calculates the fitness of the ENTIRE group state (for RL/Monitoring)."""
@@ -87,6 +52,7 @@ class GorillaTroopsOptimizer:
         """
         Executes ONE iteration of the GTO algorithm.
         Updates agent positions (opinions) based on the Silverback and competition.
+        (Vectorized for Large-Scale Simulation)
         """
         # 1. Extract Data
         current_positions = group.get_opinions_matrix() # Shape (N, D)
@@ -94,7 +60,6 @@ class GorillaTroopsOptimizer:
         N, D = current_positions.shape
         
         # 2. Identify Silverback (The Leader)
-        # We use the global fitness function logic to find the 'best' agent
         fitness_scores = self._get_fitness(current_positions, influences)
         
         best_agent_idx = np.argmax(fitness_scores)
@@ -107,79 +72,79 @@ class GorillaTroopsOptimizer:
             self.silverback_position = current_silverback
 
         # 3. GTO LOGIC: Exploration & Exploitation
-        # Create a container for the next positions
+        # Initialize new positions array
         new_positions = np.zeros_like(current_positions)
         
-        # Factor 'a' decreases over iterations (requires passing iter or keeping state)
-        # For a dynamic system, we keep 'a' constant or randomize it slightly
+        # Factor 'a' for this iteration
         a = np.random.uniform(-1, 1) 
+        silverback_bonus = self.config['gto']['silverback_bonus']
+
+        # --- VECTORIZED PHASE 1: EXPLORATION (Following vs Migration) ---
         
-        for i in range(N):
-            # Random number for decision making
-            r = np.random.rand()
+        # Generate decision mask for all agents at once
+        # True = Migrate, False = Follow Silverback
+        r = np.random.rand(N)
+        migrate_mask = r < self.p
+        follow_mask = ~migrate_mask
+        
+        # A. Migration Logic (Random jumps)
+        # Assign random positions to all migrating agents
+        if np.any(migrate_mask):
+            n_migrating = np.sum(migrate_mask)
+            new_positions[migrate_mask] = np.random.rand(n_migrating, D)
             
-            # --- PHASE 1: EXPLORATION (Following the Silverback) ---
-            if r < self.p:
-                # Migration: Random jump to known or unknown space
-                # "Social Interpretation": The agent leaves the debate and thinks independently
-                rand_idx = np.random.randint(0, N)
-                migration_target = current_positions[rand_idx]
-                
-                # Math: X_new = (Lower + rand * (Upper - Lower))
-                # We limit this to staying within opinion bounds [0,1]
-                new_positions[i] = np.random.rand(D)
-                
-            else:
-                # Normal GTO Movement (Following Leadership)
-                # "Social Interpretation": Compromising between own view and Leader's view
-                
-                # Calculate distance to Silverback
-                dist = np.abs(self.silverback_position - current_positions[i])
-                
-                # M and L are GTO coefficients simulating acceleration
-                M = np.array([np.random.normal(0, 1) for _ in range(D)]) # Random standard normal
-                L = M * dist 
-                
-                # The Core Update Equation:
-                # New = (Silverback - X) * C + X
-                # We interpret 'C' as the susceptibility/influence balance
-                C = influences[i] # High influence agents might move LESS? Or use raw GTO math.
-                
-                # Standard GTO simplified:
-                # X_new = X_silverback - L * (L * (X_old - X_silverback) + X_old) 
-                # Let's use a cleaner social dynamic version:
-                # Move towards Silverback + Noise
-                
-                noise = np.random.uniform(-1, 1, D)
-                new_positions[i] = current_positions[i] + a * (self.silverback_position - current_positions[i]) + (self.config['gto']['silverback_bonus'] * noise * 0.01)
+        # B. Following Logic (Moving towards Silverback)
+        if np.any(follow_mask):
+            n_following = np.sum(follow_mask)
+            followers_pos = current_positions[follow_mask]
+            
+            # Generate noise for all followers at once
+            noise = np.random.uniform(-1, 1, (n_following, D))
+            
+            # Vectorized Update Equation:
+            # New = Old + a * (Silverback - Old) + Noise_Bonus
+            # (Silverback position broadcasts across the batch)
+            update_step = a * (self.silverback_position - followers_pos)
+            noise_step = (silverback_bonus * noise * 0.01)
+            
+            new_positions[follow_mask] = followers_pos + update_step + noise_step
 
-            # Clip to ensure opinions stay valid (0.0 to 1.0)
-            new_positions[i] = np.clip(new_positions[i], 0.0, 1.0)
+        # Clip after Phase 1 to keep valid inputs for Phase 2
+        new_positions = np.clip(new_positions, 0.0, 1.0)
 
-        # --- PHASE 2: EXPLOITATION (Competition / Follower Interaction) ---
+        # --- VECTORIZED PHASE 2: EXPLOITATION (Competition) ---
         # Agents compare themselves to random peers
-        for i in range(N):
-            # Pick a random partner to compare with
-            rand_idx = np.random.randint(0, N)
-            partner = current_positions[rand_idx]
+        
+        # Select random partners for every agent
+        rand_indices = np.random.randint(0, N, N)
+        partners = current_positions[rand_indices]
+        partner_scores = fitness_scores[rand_indices]
+        
+        # Identify which agents are "losing" the competition (and thus need to move)
+        # We move IF partner_score > my_score
+        move_mask = partner_scores > fitness_scores
+        
+        if np.any(move_mask):
+            n_moving = np.sum(move_mask)
             
-            # If partner is 'better' (has higher influence/fitness), move towards them
-            if fitness_scores[rand_idx] > fitness_scores[i]:
-                # Move towards partner
-                step_size = np.random.rand() # Random social pressure
-                diff = partner - new_positions[i]
-                new_positions[i] += step_size * diff
-            else:
-                # Move away or stay (Social Distancing from bad ideas)
-                # For stability, we often just do nothing here or move slightly away
-                pass
-                
-            new_positions[i] = np.clip(new_positions[i], 0.0, 1.0)
+            # Extract data for moving agents
+            moving_pos = new_positions[move_mask]
+            winning_partners = partners[move_mask]
+            
+            # Random step sizes for social pressure
+            step_sizes = np.random.rand(n_moving, 1) # Shape (n_moving, 1) for broadcasting
+            
+            # Calculate difference
+            diff = winning_partners - moving_pos
+            
+            # Apply update
+            new_positions[move_mask] += step_sizes * diff
+
+        # Final Clip
+        new_positions = np.clip(new_positions, 0.0, 1.0)
 
         # 4. Apply Updates
-        # In pure optimization, we only accept improvements.
-        # In Social Simulation, opinions CHANGE even if they get 'worse' (people make mistakes).
-        # So we update the group unconditionally (or with a high probability).
+        # Bulk update the group state
         group.set_opinions(new_positions)
         
         return self.calculate_global_fitness(group)

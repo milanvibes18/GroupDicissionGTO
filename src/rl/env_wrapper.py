@@ -28,7 +28,11 @@ class GroupDecisionEnv(gym.Env):
         self.optimizer = None
         self.current_step = 0
         self.max_steps = self.sim_settings['iterations']
+        
+        # Reward Tracking State
         self.previous_fitness = 0.0
+        self.previous_cons = 0.0
+        self.previous_conf = 0.0
 
     def reset(self, seed=None, options=None):
         """Resets the simulation to start a new episode."""
@@ -48,6 +52,11 @@ class GroupDecisionEnv(gym.Env):
         self.current_step = 0
         self.previous_fitness = 0.0
         
+        # Initialize previous metrics for reward calculation
+        initial_ops = self.group.get_opinions_matrix()
+        self.previous_cons = calculate_consensus(initial_ops)
+        self.previous_conf = calculate_conflict(initial_ops)
+        
         return self._get_obs(), {}
 
     def step(self, action):
@@ -64,32 +73,46 @@ class GroupDecisionEnv(gym.Env):
         self.optimizer.weights = new_weights
         
         # 2. Run GTO Logic
+        # This updates the group's opinions internally
         current_fitness = self.optimizer.step(self.group)
         
-        # 3. Calculate Reward (Did the AI improve the situation?)
-        # Reward = Improvement in Fitness + Bonus for high Consensus - Penalty for Time
-        reward = (current_fitness - self.previous_fitness) * 10.0
-        
+        # 3. Calculate Reward Decomposition
         ops = self.group.get_opinions_matrix()
-        cons = calculate_consensus(ops)
-        conf = calculate_conflict(ops)
+        current_cons = calculate_consensus(ops)
+        current_conf = calculate_conflict(ops)
         
-        # Add bonus if consensus is very high (The Goal)
-        if cons > 0.95:
+        # Component 1: Reward for increasing Consensus
+        # Multiplied by 10 to give it significant weight in the gradient
+        reward_cons_part = (current_cons - self.previous_cons) * 10.0
+        
+        # Component 2: Reward for reducing Conflict
+        # Negative delta means conflict went down (Good), so we negate it to make reward positive
+        reward_conf_part = -(current_conf - self.previous_conf) * 5.0
+        
+        # Total Reward
+        reward = reward_cons_part + reward_conf_part
+        
+        # Bonus for achieving high consensus (The Goal)
+        if current_cons > 0.95:
             reward += 1.0
             
+        # Update history state
         self.previous_fitness = current_fitness
+        self.previous_cons = current_cons
+        self.previous_conf = current_conf
         self.current_step += 1
         
         # 4. Check if done
         terminated = bool(self.current_step >= self.max_steps)
         truncated = False
         
-        # 5. Return Info
+        # 5. Return Info with Decomposition Data
         info = {
-            "consensus": cons,
-            "conflict": conf,
-            "weights": new_weights
+            "consensus": current_cons,
+            "conflict": current_conf,
+            "weights": new_weights,
+            "reward_cons_part": reward_cons_part,
+            "reward_conf_part": reward_conf_part
         }
         
         return self._get_obs(), reward, terminated, truncated, info
