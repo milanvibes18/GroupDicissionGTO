@@ -1,0 +1,14 @@
+simulation:
+  n_agents: 50             # Number of people in the group
+  dimension: 5             # Complexity of the opinion (5 topics/dimensions)
+  iterations: 100          # How long the GTO runs per episode
+  influence_range: [0.1, 1.0] # Min/Max influence an agent can have
+
+weights:
+  alpha: 0.5               # Importance of Consensus
+  beta: 0.3                # Importance of Leadership Influence
+  gamma: 0.2               # Penalty for Conflict
+
+gto:
+  silverback_bonus: 1.2    # Multiplier for leader's strength
+  migration_rate: 0.1      # 10% chance of randomizing (escaping stagnation)
