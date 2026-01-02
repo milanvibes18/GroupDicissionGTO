@@ -49,5 +49,35 @@ class Group:
         for i, agent in enumerate(self.agents):
             agent.opinion = new_opinions[i]
 
+    def update_agent_influence(self, indices, amount=0.01):
+        """
+        Updates the influence scores of specific agents (Dynamic Influence).
+        Used to reward agents who attract followers (Rich-get-Richer).
+        
+        Args:
+            indices: List or array of agent indices to update.
+            amount: How much to increase their influence (default 0.01).
+        """
+        # Ensure indices is iterable if a single integer is passed
+        if isinstance(indices, (int, np.integer)):
+            indices = [indices]
+            
+        max_infl = self.influence_range[1]
+
+        for idx in indices:
+            if 0 <= idx < self.n_agents:
+                agent = self.agents[idx]
+                
+                # Boost influence
+                agent.influence += amount
+                
+                # Clip to strictly respect the max bound (from init settings)
+                agent.influence = min(agent.influence, max_infl)
+                
+                # Recalculate susceptibility to maintain consistency
+                # Formula matches Agent.__init__: 1.0 - (influence * 0.5)
+                # Higher influence = Lower susceptibility (less likely to change opinion)
+                agent.susceptibility = 1.0 - (agent.influence * 0.5)
+
     def __len__(self):
         return self.n_agents

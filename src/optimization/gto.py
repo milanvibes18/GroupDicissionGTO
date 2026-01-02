@@ -131,6 +131,14 @@ class GorillaTroopsOptimizer:
             moving_pos = new_positions[move_mask]
             winning_partners = partners[move_mask]
             
+            # --- NEW UPDATE: Dynamic Influence (Rich-get-Richer) ---
+            # Identify the specific agents who won (their index in the original list)
+            winning_indices = rand_indices[move_mask]
+            
+            # Boost their influence because they successfully attracted a follower
+            group.update_agent_influence(winning_indices)
+            # -------------------------------------------------------
+            
             # Random step sizes for social pressure
             step_sizes = np.random.rand(n_moving, 1) # Shape (n_moving, 1) for broadcasting
             
