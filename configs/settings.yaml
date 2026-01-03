@@ -1,7 +1,7 @@
 simulation:
-  n_agents: 50             # Number of people in the group
-  dimension: 5             # Complexity of the opinion (5 topics/dimensions)
-  iterations: 100          # How long the GTO runs per episode
+  n_agents: 10             # Default number of agents (for simulation mode). In App mode, this grows dynamically.
+  dimension: 384           # CRITICAL UPDATE: Matches 'all-MiniLM-L6-v2' vector size.
+  iterations: 50           # Reduced slightly for speed since vectors are larger now.
   influence_range: [0.1, 1.0] # Min/Max influence an agent can have
 
 weights:

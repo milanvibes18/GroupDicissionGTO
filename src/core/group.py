@@ -2,82 +2,103 @@ import numpy as np
 from src.core.agent import Agent
 
 class Group:
-    def __init__(self, n_agents, dimension, influence_range=(0.1, 1.0)):
+    def __init__(self, n_agents=0, dimension=384, influence_range=(0.1, 1.0)):
         """
-        Manages the population of agents (The Troop).
+        Manages the population of agents.
+        Updated for the App: Can start empty and accept real users.
+        
+        Args:
+            n_agents: Number of random agents to generate (default 0 for App mode).
+            dimension: Size of the opinion vector (384 for NLP).
+            influence_range: Min/Max social influence.
         """
         self.n_agents = n_agents
         self.dimension = dimension
         self.influence_range = influence_range
         self.agents = []
         
-        # Build the population immediately
-        self._initialize_agents()
+        # Only create fake agents if requested (e.g. for testing)
+        if self.n_agents > 0:
+            self._initialize_agents()
 
     def _initialize_agents(self):
-        """Creates the initial population of agents."""
+        """Creates the initial population of random agents (Simulation Mode)."""
         for i in range(self.n_agents):
             agent = Agent(id=i, dimension=self.dimension, influence_range=self.influence_range)
             self.agents.append(agent)
 
+    def add_user_agent(self, text_content, vector_opinion):
+        """
+        Adds a REAL user to the group (App Mode).
+        
+        Args:
+            text_content (str): The user's original text input.
+            vector_opinion (np.array): The NLP vector (384,) representation.
+        """
+        new_id = len(self.agents)
+        
+        # Create agent using the modified Agent class
+        # (This uses the 'initial_vector' & 'text_content' fields we added to Agent)
+        agent = Agent(
+            id=new_id, 
+            dimension=self.dimension, 
+            influence_range=self.influence_range,
+            initial_vector=vector_opinion,
+            text_content=text_content
+        )
+        
+        self.agents.append(agent)
+        self.n_agents += 1  # Keep the count in sync!
+
     def get_opinions_matrix(self):
         """
         Returns a (N, D) numpy array of all agent opinions.
-        Crucial for vectorised calculations (much faster than loops).
         """
+        if not self.agents:
+            return np.empty((0, self.dimension))
         return np.array([agent.opinion for agent in self.agents])
 
     def get_influences_vector(self):
         """
         Returns a (N,) numpy array of all agent influence scores.
         """
+        if not self.agents:
+            return np.array([])
         return np.array([agent.influence for agent in self.agents])
     
     def set_opinions(self, new_opinions):
         """
         Bulk update of all agent opinions.
-        The GTO optimizer will calculate new positions for everyone, 
-        and this method applies them back to the agents.
-        
-        Args:
-            new_opinions: A (N, D) numpy array of the new positions.
+        The GTO optimizer uses this to apply the new math positions.
         """
-        # Safety check to ensure dimensions match
-        if new_opinions.shape != (self.n_agents, self.dimension):
-            raise ValueError(f"Shape mismatch: Expected ({self.n_agents}, {self.dimension}), got {new_opinions.shape}")
+        # Safety check to ensure dimensions match current agent count
+        current_count = len(self.agents)
+        if new_opinions.shape != (current_count, self.dimension):
+            raise ValueError(f"Shape mismatch: Expected ({current_count}, {self.dimension}), got {new_opinions.shape}")
 
         for i, agent in enumerate(self.agents):
             agent.opinion = new_opinions[i]
 
     def update_agent_influence(self, indices, amount=0.01):
         """
-        Updates the influence scores of specific agents (Dynamic Influence).
-        Used to reward agents who attract followers (Rich-get-Richer).
-        
-        Args:
-            indices: List or array of agent indices to update.
-            amount: How much to increase their influence (default 0.01).
+        Updates the influence scores of specific agents (Rich-get-Richer).
         """
-        # Ensure indices is iterable if a single integer is passed
         if isinstance(indices, (int, np.integer)):
             indices = [indices]
             
         max_infl = self.influence_range[1]
 
         for idx in indices:
-            if 0 <= idx < self.n_agents:
+            # Ensure index is valid
+            if 0 <= idx < len(self.agents):
                 agent = self.agents[idx]
                 
                 # Boost influence
                 agent.influence += amount
-                
-                # Clip to strictly respect the max bound (from init settings)
                 agent.influence = min(agent.influence, max_infl)
                 
-                # Recalculate susceptibility to maintain consistency
-                # Formula matches Agent.__init__: 1.0 - (influence * 0.5)
-                # Higher influence = Lower susceptibility (less likely to change opinion)
+                # Recalculate susceptibility (Inverse of influence)
                 agent.susceptibility = 1.0 - (agent.influence * 0.5)
 
     def __len__(self):
-        return self.n_agents
+        return len(self.agents)

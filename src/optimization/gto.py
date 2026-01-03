@@ -88,10 +88,10 @@ class GorillaTroopsOptimizer:
         follow_mask = ~migrate_mask
         
         # A. Migration Logic (Random jumps)
-        # Assign random positions to all migrating agents
+        # ⚠️ UPDATE 1: Use uniform(-1, 1) to allow negative values (NLP compatible)
         if np.any(migrate_mask):
             n_migrating = np.sum(migrate_mask)
-            new_positions[migrate_mask] = np.random.rand(n_migrating, D)
+            new_positions[migrate_mask] = np.random.uniform(-1.0, 1.0, (n_migrating, D))
             
         # B. Following Logic (Moving towards Silverback)
         if np.any(follow_mask):
@@ -109,8 +109,8 @@ class GorillaTroopsOptimizer:
             
             new_positions[follow_mask] = followers_pos + update_step + noise_step
 
-        # Clip after Phase 1 to keep valid inputs for Phase 2
-        new_positions = np.clip(new_positions, 0.0, 1.0)
+        # ⚠️ UPDATE 2: Clip to [-1, 1] instead of [0, 1]
+        new_positions = np.clip(new_positions, -1.0, 1.0)
 
         # --- VECTORIZED PHASE 2: EXPLOITATION (Competition) ---
         # Agents compare themselves to random peers
@@ -148,8 +148,8 @@ class GorillaTroopsOptimizer:
             # Apply update
             new_positions[move_mask] += step_sizes * diff
 
-        # Final Clip
-        new_positions = np.clip(new_positions, 0.0, 1.0)
+        # ⚠️ UPDATE 3: Final Clip to [-1, 1]
+        new_positions = np.clip(new_positions, -1.0, 1.0)
 
         # 4. Apply Updates
         # Bulk update the group state
