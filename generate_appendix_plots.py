@@ -1,5 +1,6 @@
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import os
 
 # Create outputs folder if it doesn't exist
@@ -32,31 +33,37 @@ def generate_sensitivity_plot():
     plt.savefig('outputs/plots/fig_sensitivity.png', dpi=300, bbox_inches='tight')
     print("✅ Generated Figure 5: outputs/plots/fig_sensitivity.png")
 
-def generate_rl_curve():
-    """Generates Figure 6: PPO Offline Training Curve"""
-    timesteps = np.linspace(0, 20000, 200)
-    
-    # Simulated training curve with logarithmic learning phase and variance
-    mean_reward = 10 * (1 - np.exp(-timesteps / 4000)) + (timesteps / 10000)
-    variance = 2.0 * np.exp(-timesteps / 8000) + 0.5
-    
-    upper_bound = mean_reward + variance
-    lower_bound = mean_reward - variance
-    
-    plt.figure(figsize=(8, 5))
-    plt.plot(timesteps, mean_reward, label='Mean Cumulative Reward', color='blue')
-    plt.fill_between(timesteps, lower_bound, upper_bound, color='blue', alpha=0.2, label='$\pm 1$ Standard Deviation')
-    
-    plt.title('PPO Offline Training Convergence (5 Seeds)')
-    plt.xlabel('Timesteps')
-    plt.ylabel('Cumulative Reward')
-    plt.legend(loc='lower right')
-    plt.grid(True, linestyle='--', alpha=0.7)
-    
-    plt.savefig('outputs/plots/fig_rl_curve.pdf', format='pdf', bbox_inches='tight')
-    plt.savefig('outputs/plots/fig_rl_curve.png', dpi=300, bbox_inches='tight')
-    print("✅ Generated Figure 6: outputs/plots/fig_rl_curve.png")
+def generate_real_rl_curve():
+    """Generates Figure 6: PPO Offline Training Curve using ACTUAL data"""
+    try:
+        # Load the real logged data
+        df = pd.read_csv("outputs/logs/progress.csv")
+        
+        # Extract data columns
+        timesteps = df['time/total_timesteps']
+        mean_reward = df['rollout/ep_rew_mean']
+        
+        plt.figure(figsize=(8, 5))
+        
+        # Plot the actual data
+        plt.plot(timesteps, mean_reward, label='Mean Cumulative Reward', color='blue', linewidth=2)
+        
+        plt.title('PPO Offline Training Convergence')
+        plt.xlabel('Timesteps')
+        plt.ylabel('Cumulative Reward')
+        plt.legend(loc='lower right')
+        plt.grid(True, linestyle='--', alpha=0.7)
+        
+        plt.savefig('outputs/plots/fig_rl_curve.pdf', format='pdf', bbox_inches='tight')
+        plt.savefig('outputs/plots/fig_rl_curve.png', dpi=300, bbox_inches='tight')
+        print("✅ Generated Figure 6 using REAL data: outputs/plots/fig_rl_curve.png")
+        
+    except FileNotFoundError:
+        print("❌ Could not find outputs/logs/progress.csv. Make sure the trainer ran successfully!")
+    except KeyError as e:
+        print(f"❌ Error reading CSV columns. The CSV format might be slightly different: {e}")
 
 if __name__ == "__main__":
+    # Generate BOTH plots using this single script
     generate_sensitivity_plot()
-    generate_rl_curve()
+    generate_real_rl_curve()
