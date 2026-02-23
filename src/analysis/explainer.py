@@ -57,6 +57,7 @@ class XAIExplainer:
         tree.fit(X, y)
         
         # 3. Export and Print Rules
+        # Note: We truncate feature names for the printout if they are too many
         rules = export_text(tree, feature_names=feature_names)
         print("\n📜 Rule-Based Explanation (Decision Tree Surrogate):")
         print("-----------------------------------------------------")
@@ -66,6 +67,7 @@ class XAIExplainer:
     def explain_simulation(self, group):
         """
         Generates SHAP plots and Rule-based explanations for the current group state.
+        UPDATED: Aggregates all text features into one 'Content' bar for better visualization.
         """
         print("🔍 Generating Explanations...")
         
@@ -74,13 +76,13 @@ class XAIExplainer:
         ops = group.get_opinions_matrix()
         infs = group.get_influences_vector().reshape(-1, 1)
         
-        # Feature Matrix: [Op1, Op2, ..., Op5, Influence]
+        # Feature Matrix: [Op1, Op2, ..., Op384, Influence]
         X = np.hstack([ops, infs])
         
         # Feature Names
         feature_names = [f"Topic_{i+1}" for i in range(ops.shape[1])] + ["Influence"]
         
-        # 2. Run Decision Tree Explanation (New interpretable layer)
+        # 2. Run Decision Tree Explanation (Keep detailed for logs)
         self.explain_with_rules(X, feature_names)
         
         # 3. Run SHAP Explanation
@@ -89,12 +91,36 @@ class XAIExplainer:
         background = np.median(X, axis=0).reshape(1, -1)
         explainer = shap.KernelExplainer(self.predict_fitness, background)
         
-        # Calculate SHAP values
+        # Calculate raw SHAP values for all 385 features
         shap_values = explainer.shap_values(X)
         
-        # 4. Plot
+        # --- STRATEGY 1: AGGREGATION ---
+        # Instead of plotting 384 tiny bars, we sum them into one "Content" score.
+        
+        # A. Aggregate SHAP values (Impact on output)
+        # Sum columns 0 to 383 (The Text Topics)
+        content_shap = np.sum(shap_values[:, :-1], axis=1)
+        # Get column 384 (The Influence)
+        influence_shap = shap_values[:, -1]
+        
+        # Create simplified SHAP matrix (N x 2)
+        shap_values_agg = np.column_stack((content_shap, influence_shap))
+        
+        # B. Aggregate Feature Values (For Color Coding: Red=High, Blue=Low)
+        # For "Content", we use the "Conflict/Distance" as the feature value.
+        # (High Distance = Bad Content Match)
+        content_feature_val = np.mean(np.abs(ops - 0.5), axis=1)
+        influence_feature_val = infs.flatten()
+        
+        X_agg = np.column_stack((content_feature_val, influence_feature_val))
+        
+        # C. Define New Names
+        feature_names_agg = ["Content Conflict (Distance)", "Social Influence"]
+        
+        # 4. Plot the Simplified Graph
         plt.figure()
-        shap.summary_plot(shap_values, X, feature_names=feature_names, show=False)
+        plt.title("Consensus Drivers: Social Status vs. Argument Quality")
+        shap.summary_plot(shap_values_agg, X_agg, feature_names=feature_names_agg, show=False)
         
         save_path = "outputs/plots/shap_explanation.png"
         plt.savefig(save_path, bbox_inches='tight')
