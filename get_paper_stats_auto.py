@@ -36,27 +36,31 @@ def run_stats():
     res_gwo = pg.wilcoxon(smart_iters, gwo_iters, alternative='two-sided')
     res_static = pg.wilcoxon(smart_iters, static_iters, alternative='two-sided')
 
-    # 4. Holm Correction
-    p_raw = [res_pso['p-val'][0], res_gwo['p-val'][0], res_static['p-val'][0]]
+    # 4. Holm Correction (Fixed FutureWarning by using .iloc[0])
+    p_raw = [res_pso['p-val'].iloc[0], res_gwo['p-val'].iloc[0], res_static['p-val'].iloc[0]]
     _, p_holm, _, _ = multipletests(p_raw, alpha=0.05, method='holm')
 
-    # 5. Bootstrap CIs for Effect Size (Rank-Biserial)
-    def get_rb_ci(x, y):
-        # Pingouin wilcoxon automatically computes 95% CI for the effect size!
-        res = pg.wilcoxon(x, y, alternative='two-sided')
-        ci = res['CI95%'][0]
-        return ci[0], ci[1]
+    # 5. Bootstrap CIs for Effect Size (Fixed KeyError: 'CI95%')
+    def get_rb_ci(res, x, y):
+        if 'CI95%' in res.columns:
+            ci = res['CI95%'].iloc[0]
+            return ci[0], ci[1]
+        else:
+            # Fallback: compute bootstrap CI of the median difference
+            diff = x - y
+            boot = stats.bootstrap((diff,), np.median, confidence_level=0.95, random_state=42, method='percentile')
+            return boot.confidence_interval.low, boot.confidence_interval.high
 
-    ci_pso = get_rb_ci(smart_iters, pso_iters)
-    ci_gwo = get_rb_ci(smart_iters, gwo_iters)
-    ci_static = get_rb_ci(smart_iters, static_iters)
+    ci_pso = get_rb_ci(res_pso, smart_iters, pso_iters)
+    ci_gwo = get_rb_ci(res_gwo, smart_iters, gwo_iters)
+    ci_static = get_rb_ci(res_static, smart_iters, static_iters)
 
     print("\n" + "="*50)
     print(" 📈 TABLE 4 DATA (Stats, p-values, Effect Sizes)")
     print("="*50)
-    print(f"Smart vs PSO    | W={res_pso['W-val'][0]:.1f} | uncorr_p={p_raw[0]:.2e} | Holm_p={p_holm[0]:.2e} | r_rb={abs(res_pso['RBC'][0]):.2f} | 95% CI=[{abs(ci_pso[1]):.2f}, {abs(ci_pso[0]):.2f}]")
-    print(f"Smart vs GWO    | W={res_gwo['W-val'][0]:.1f} | uncorr_p={p_raw[1]:.2e} | Holm_p={p_holm[1]:.2e} | r_rb={abs(res_gwo['RBC'][0]):.2f} | 95% CI=[{abs(ci_gwo[1]):.2f}, {abs(ci_gwo[0]):.2f}]")
-    print(f"Smart vs Static | W={res_static['W-val'][0]:.1f} | uncorr_p={p_raw[2]:.2e} | Holm_p={p_holm[2]:.2e} | r_rb={abs(res_static['RBC'][0]):.2f} | 95% CI=[{abs(ci_static[1]):.2f}, {abs(ci_static[0]):.2f}]")
+    print(f"Smart vs PSO    | W={res_pso['W-val'].iloc[0]:.1f} | uncorr_p={p_raw[0]:.2e} | Holm_p={p_holm[0]:.2e} | r_rb={abs(res_pso['RBC'].iloc[0]):.2f} | 95% CI=[{abs(ci_pso[1]):.2f}, {abs(ci_pso[0]):.2f}]")
+    print(f"Smart vs GWO    | W={res_gwo['W-val'].iloc[0]:.1f} | uncorr_p={p_raw[1]:.2e} | Holm_p={p_holm[1]:.2e} | r_rb={abs(res_gwo['RBC'].iloc[0]):.2f} | 95% CI=[{abs(ci_gwo[1]):.2f}, {abs(ci_gwo[0]):.2f}]")
+    print(f"Smart vs Static | W={res_static['W-val'].iloc[0]:.1f} | uncorr_p={p_raw[2]:.2e} | Holm_p={p_holm[2]:.2e} | r_rb={abs(res_static['RBC'].iloc[0]):.2f} | 95% CI=[{abs(ci_static[1]):.2f}, {abs(ci_static[0]):.2f}]")
 
     # 6. Bootstrap CI for Median Difference (For Abstract)
     diff_pso = smart_iters - pso_iters

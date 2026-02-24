@@ -21,7 +21,9 @@ def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_sma
         if is_smart:
             if model is None: raise ValueError("CRITICAL: PPO Model is missing!")
             # Use the REAL AI
-            obs = np.array([last_cons, 0.0 if t==0 else last_cons - prev_cons, t/max_iters], dtype=np.float32)
+            # The AI now sees the standard deviation (spread) of the opinions!
+            current_std = np.std(group_state.get_opinions_matrix())
+            obs = np.array([last_cons, 0.0 if t==0 else last_cons - prev_cons, t/max_iters, current_std], dtype=np.float32)
             action, _ = model.predict(obs, deterministic=True)
             total = sum(action) + 1e-6
             optimizer.weights = {'alpha': action[0]/total, 'beta': action[1]/total, 'gamma': action[2]/total}
