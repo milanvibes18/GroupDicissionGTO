@@ -9,7 +9,7 @@ from src.optimization.gwo import GreyWolfOptimizer
 from stable_baselines3 import PPO
 
 def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_smart=False, model=None):
-    # Properly tune the physics (deliberation speed) for each algorithm to reflect standard convergence rates
+    # Properly tune the physics (deliberation speed)
     if algo_name == "Smart_GTO": max_step = 0.055
     elif algo_name == "Static_GTO": max_step = 0.035
     elif algo_name == "GWO": max_step = 0.030
@@ -20,13 +20,20 @@ def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_sma
     for t in range(max_iters):
         if is_smart:
             if model is None: raise ValueError("CRITICAL: PPO Model is missing!")
-            # Use the REAL AI
-            # The AI now sees the standard deviation (spread) of the opinions!
+            
+            # 1. THE EYES: The AI now sees the standard deviation
             current_std = np.std(group_state.get_opinions_matrix())
             obs = np.array([last_cons, 0.0 if t==0 else last_cons - prev_cons, t/max_iters, current_std], dtype=np.float32)
             action, _ = model.predict(obs, deterministic=True)
-            total = sum(action) + 1e-6
-            optimizer.weights = {'alpha': action[0]/total, 'beta': action[1]/total, 'gamma': action[2]/total}
+            
+            # 2. THE CONTROLLER FIX: Softmax mapping (Matches training!)
+            exp_action = np.exp(action)
+            softmax_action = exp_action / np.sum(exp_action)
+            optimizer.weights = {
+                'alpha': softmax_action[0], 
+                'beta': softmax_action[1], 
+                'gamma': softmax_action[2]
+            }
         
         prev_cons = last_cons
         old_ops = group_state.get_opinions_matrix()
