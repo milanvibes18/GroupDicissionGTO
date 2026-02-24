@@ -1,5 +1,5 @@
 simulation:
-  n_agents: 10             # Default number of agents (for simulation mode). In App mode, this grows dynamically.
+  n_agents: 50             # Default number of agents (for simulation mode). In App mode, this grows dynamically.
   dimension: 384           # CRITICAL UPDATE: Matches 'all-MiniLM-L6-v2' vector size.
   iterations: 50           # Reduced slightly for speed since vectors are larger now.
   influence_range: [0.1, 1.0] # Min/Max influence an agent can have
