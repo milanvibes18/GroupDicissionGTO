@@ -6,8 +6,6 @@ class GorillaTroopsOptimizer:
     def __init__(self, config, weights):
         self.config = config
         self.weights = weights
-        self.p = 0.03  
-        self.beta = 3.0
         self.silverback_score = -np.inf
         self.silverback_position = None
 
@@ -15,13 +13,11 @@ class GorillaTroopsOptimizer:
         mean_op = np.mean(opinions, axis=0)
         dists = np.linalg.norm(opinions - mean_op, axis=1)
         
-        # --- THE FIX: The AI's dials actually control the physics now! ---
-        alpha = self.weights.get('alpha', 0.5)
-        beta = self.weights.get('beta', 0.5)
+        alpha = self.weights.get('alpha', 0.33)
+        beta = self.weights.get('beta', 0.33)
         
-        # The AI re-defines what makes a "good" leader on the fly
+        # AI balances Influence vs Consensus
         scores = (alpha * influences) - (beta * dists)
-            
         return scores
 
     def calculate_global_fitness(self, group):
@@ -45,12 +41,17 @@ class GorillaTroopsOptimizer:
             self.silverback_position = current_silverback
 
         new_positions = np.zeros_like(current_positions)
-        a = np.random.uniform(-1, 1) 
         silverback_bonus = self.config['gto']['silverback_bonus']
 
-        # --- THE FIX 2: Gamma controls the Exploration/Migration rate! ---
-        # Scale the AI's 0.0->1.0 gamma output to a realistic 0% -> 10% migration chance
-        self.p = self.weights.get('gamma', 0.33) * 0.10
+        # --- THE FIX: AI Controls Gas Pedal & Steering ---
+        gamma = self.weights.get('gamma', 0.33)
+        beta = self.weights.get('beta', 0.33)
+        
+        # Gamma controls migration wandering (0% to 10%)
+        self.p = gamma * 0.10
+        
+        # Beta is the accelerator! Strictly positive so they march FORWARD.
+        a = np.random.uniform(beta, beta + 1.0)
         
         r = np.random.rand(N)
         migrate_mask = r < self.p
@@ -72,6 +73,7 @@ class GorillaTroopsOptimizer:
 
         new_positions = np.clip(new_positions, -1.0, 1.0)
 
+        # --- EXPLOITATION PHASE ---
         rand_indices = np.random.randint(0, N, N)
         partners = current_positions[rand_indices]
         partner_scores = fitness_scores[rand_indices]
@@ -88,7 +90,9 @@ class GorillaTroopsOptimizer:
             
             step_sizes = np.random.rand(n_moving, 1) 
             diff = winning_partners - moving_pos
-            new_positions[move_mask] += step_sizes * diff
+            
+            # AI Beta also accelerates how fast they cave to peer pressure
+            new_positions[move_mask] += (step_sizes + beta) * diff
 
         new_positions = np.clip(new_positions, -1.0, 1.0)
         group.set_opinions(new_positions)

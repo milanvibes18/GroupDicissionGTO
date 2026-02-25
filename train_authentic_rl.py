@@ -10,9 +10,9 @@ from src.optimization.gto import GorillaTroopsOptimizer
 class AuthenticGTOEnv(gym.Env):
     def __init__(self):
         super().__init__()
-        # Actions: alpha, beta, gamma
-        self.action_space = spaces.Box(low=1e-6, high=1.0, shape=(3,), dtype=np.float32)
-        # THE FIX: Obs is now 4 numbers: [consensus, delta_cons, time, STD_DEVIATION]
+        # FIX: Action space allows native PPO range
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
+        # FIX: 4 numbers (Eyes are open)
         self.observation_space = spaces.Box(low=-2.0, high=2.0, shape=(4,), dtype=np.float32)
         
         self.max_iters = 75
@@ -33,16 +33,16 @@ class AuthenticGTOEnv(gym.Env):
         self.optimizer = GorillaTroopsOptimizer(self.config, {'alpha': 0.33, 'beta': 0.33, 'gamma': 0.33})
         self.current_step = 0
         self.last_cons = calculate_consensus(self.group.get_opinions_matrix())
-        
-        # Calculate initial spread of opinions
         initial_std = np.std(self.group.get_opinions_matrix())
         
         return np.array([self.last_cons, 0.0, 0.0, initial_std], dtype=np.float32), {}
 
     def step(self, action):
-        # Softmax Action Mapping (Perfect Control)
-        exp_action = np.exp(action)
+        # --- THE FIX: Temperature Scaling (Multiplier) ---
+        scaled_action = action * 5.0
+        exp_action = np.exp(scaled_action)
         softmax_action = exp_action / np.sum(exp_action)
+        
         self.optimizer.weights = {
             'alpha': softmax_action[0], 
             'beta': softmax_action[1], 
@@ -60,8 +60,6 @@ class AuthenticGTOEnv(gym.Env):
         self.current_step += 1
         new_cons = calculate_consensus(self.group.get_opinions_matrix())
         delta_cons = new_cons - self.last_cons
-        
-        # Calculate current spread of opinions (The AI's "Eyes")
         current_std = np.std(self.group.get_opinions_matrix())
         
         # Pure Shortest Path Reward
@@ -82,7 +80,7 @@ class AuthenticGTOEnv(gym.Env):
         return obs, reward, done, False, {}
 
 if __name__ == "__main__":
-    print("🧠 Initiating OMNISCIENT PPO Training...")
+    print("🧠 Initiating PERFECT PPO Training...")
     env = AuthenticGTOEnv()
     
     policy_kwargs = dict(net_arch=dict(pi=[128, 128], vf=[128, 128]))
@@ -91,11 +89,11 @@ if __name__ == "__main__":
                 batch_size=128, n_epochs=20, ent_coef=0.05, 
                 policy_kwargs=policy_kwargs, verbose=1)
     
-    TIMESTEPS = 500000 
+    TIMESTEPS = 300000 
     
     print(f"🚀 Training for {TIMESTEPS} timesteps. Let it cook!")
     model.learn(total_timesteps=TIMESTEPS)
     
     os.makedirs("outputs/models", exist_ok=True)
     model.save("outputs/models/ppo_gto_agent")
-    print("✅ Omniscient RL Model Trained and Saved to outputs/models/ppo_gto_agent.zip")
+    print("✅ Perfect RL Model Trained and Saved to outputs/models/ppo_gto_agent.zip")
