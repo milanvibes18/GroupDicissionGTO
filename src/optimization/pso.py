@@ -5,9 +5,10 @@ class ParticleSwarmOptimizer:
     def __init__(self, config, weights):
         self.config = config
         self.weights = weights
-        self.w = 0.5  # Inertia
-        self.c1 = 1.5 # Cognitive (Personal best)
-        self.c2 = 1.5 # Social (Global best)
+        # FIX: Updated to Clerc's Constriction Parameters as claimed in the paper
+        self.w = 0.729  # Inertia
+        self.c1 = 1.49  # Cognitive (Personal best)
+        self.c2 = 1.49  # Social (Global best)
         
         self.velocities = None
         self.personal_bests = None
@@ -25,7 +26,6 @@ class ParticleSwarmOptimizer:
         influences = group.get_influences_vector()
         N, D = current_positions.shape
         
-        # Initialize velocities and personal bests on first step
         if self.velocities is None:
             self.velocities = np.zeros_like(current_positions)
             self.personal_bests = np.copy(current_positions)
@@ -33,7 +33,6 @@ class ParticleSwarmOptimizer:
 
         fitness_scores = self._get_fitness(current_positions, influences)
 
-        # Update personal and global bests
         for i in range(N):
             if fitness_scores[i] > self.personal_best_scores[i]:
                 self.personal_best_scores[i] = fitness_scores[i]
@@ -43,11 +42,9 @@ class ParticleSwarmOptimizer:
                 self.global_best_score = fitness_scores[i]
                 self.global_best = current_positions[i]
 
-        # PSO Update Math
         r1 = np.random.rand(N, D)
         r2 = np.random.rand(N, D)
         
-        # v = w*v + c1*r1*(pbest - x) + c2*r2*(gbest - x)
         self.velocities = (self.w * self.velocities + 
                            self.c1 * r1 * (self.personal_bests - current_positions) + 
                            self.c2 * r2 * (self.global_best - current_positions))
@@ -57,6 +54,5 @@ class ParticleSwarmOptimizer:
         
         group.set_opinions(new_positions)
         
-        # Calculate actual fitness metric for logging
         from src.core.metrics import calculate_fitness
         return calculate_fitness(new_positions, influences, self.weights)

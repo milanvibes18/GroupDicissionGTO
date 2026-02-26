@@ -43,15 +43,17 @@ class GorillaTroopsOptimizer:
         new_positions = np.zeros_like(current_positions)
         silverback_bonus = self.config['gto']['silverback_bonus']
 
-        # --- THE FIX: AI Controls Gas Pedal & Steering ---
+        # --- AI Controls Gas Pedal & Steering ---
         gamma = self.weights.get('gamma', 0.33)
         beta = self.weights.get('beta', 0.33)
         
         # Gamma controls migration wandering (0% to 10%)
         self.p = gamma * 0.10
         
-        # Beta is the accelerator! Strictly positive so they march FORWARD.
-        a = np.random.uniform(beta, beta + 1.0)
+        # --- FIX: Cap the Accelerator ---
+        # Strictly limits how fast followers can jump toward the leader.
+        # Max persuasion (beta=1.0) now only covers 20% of the distance per step.
+        a = np.random.uniform(0.0, beta * 0.2)
         
         r = np.random.rand(N)
         migrate_mask = r < self.p
@@ -91,8 +93,9 @@ class GorillaTroopsOptimizer:
             step_sizes = np.random.rand(n_moving, 1) 
             diff = winning_partners - moving_pos
             
-            # AI Beta also accelerates how fast they cave to peer pressure
-            new_positions[move_mask] += (step_sizes + beta) * diff
+            # --- FIX: Cap Peer Pressure ---
+            # Prevents agents from instantly overwriting their opinions based on neighbors
+            new_positions[move_mask] += (step_sizes * beta * 0.2) * diff
 
         new_positions = np.clip(new_positions, -1.0, 1.0)
         group.set_opinions(new_positions)

@@ -92,6 +92,11 @@ class GroupDecisionEnv(gym.Env):
         # Total Reward
         reward = reward_cons_part + reward_conf_part
         
+        # --- NEW FIX: Human Stubbornness Penalty ---
+        # Penalize unnatural forced consensus leaps
+        if (current_cons - self.previous_cons) > 0.2:
+            reward -= 2.0  
+            
         # Bonus for achieving high consensus (The Goal)
         if current_cons > 0.95:
             reward += 1.0
