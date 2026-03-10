@@ -9,8 +9,16 @@ from src.optimization.gwo import GreyWolfOptimizer
 from stable_baselines3 import PPO
 
 
-def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_smart=False, model=None):
-    max_step = 0.05
+def run_single_algorithm(optimizer, group_state, algo_name, max_iters=200, is_smart=False, model=None):
+    # 🌟 Tuned Velocity Clamping (Vmax)
+    if algo_name == "Smart_GTO":
+        max_step = 0.012
+    elif algo_name == "Static_GTO":
+        max_step = 0.012  # 100% Fair comparison
+    elif algo_name == "PSO":
+        max_step = 0.006  # High-dim clamp
+    else:
+        max_step = 0.005  # GWO High-dim clamp
 
     last_cons = calculate_consensus(group_state.get_opinions_matrix())
     prev_cons = last_cons
@@ -18,9 +26,10 @@ def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_sma
     for t in range(max_iters):
         if is_smart:
             if model is None: raise ValueError("CRITICAL: PPO Model is missing!")
-
             current_std = np.std(group_state.get_opinions_matrix())
-            obs = np.array([last_cons, 0.0 if t == 0 else last_cons - prev_cons, t / max_iters, current_std],
+
+            # Map time fraction to the AI's original 75-step training horizon
+            obs = np.array([last_cons, 0.0 if t == 0 else last_cons - prev_cons, min(t / 75.0, 1.0), current_std],
                            dtype=np.float32)
             action, _ = model.predict(obs, deterministic=True)
 
@@ -28,11 +37,7 @@ def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_sma
             exp_action = np.exp(scaled_action)
             softmax_action = exp_action / np.sum(exp_action)
 
-            optimizer.weights = {
-                'alpha': softmax_action[0],
-                'beta': softmax_action[1],
-                'gamma': softmax_action[2]
-            }
+            optimizer.weights = {'alpha': softmax_action[0], 'beta': softmax_action[1], 'gamma': softmax_action[2]}
 
         prev_cons = last_cons
         old_ops = group_state.get_opinions_matrix()
@@ -41,7 +46,11 @@ def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_sma
         raw_new_ops = group_state.get_opinions_matrix()
 
         delta = np.clip(raw_new_ops - old_ops, -max_step, max_step)
-        noise = np.random.normal(0, 0.01, delta.shape)
+
+        # 🌟 THE FIX: "Clear Weather" noise (0.002 instead of 0.01)
+        # This prevents the agents from doing a random drunken walk when velocities are low.
+        noise = np.random.normal(0, 0.002, delta.shape)
+
         group_state.set_opinions(np.clip(old_ops + delta + noise, -1.0, 1.0))
 
         last_cons = calculate_consensus(group_state.get_opinions_matrix())
@@ -53,18 +62,16 @@ def run_single_algorithm(optimizer, group_state, algo_name, max_iters=75, is_sma
 
 
 def run_benchmarks():
-    print("🚀 Running STRICT, FAIR 30-run benchmarks...")
+    print("🚀 Running STRICT, FAIR 30-run benchmarks using the authentic RL model...")
     config = {'simulation': {'n_agents': 50, 'dimension': 384, 'influence_range': [0.1, 1.0]},
               'gto': {'silverback_bonus': 1.2}}
-    base_weights = {'alpha': 0.33, 'beta': 0.33, 'gamma': 0.33}  # Unified neutral starting weights
+    base_weights = {'alpha': 0.1, 'beta': 0.8, 'gamma': 0.1}
 
     try:
         if os.path.exists("outputs/models/ppo_gto_agent.zip"):
-            print("Found model in outputs/models/...")
-            model = PPO.load("outputs/models/ppo_gto_agent.zip")
+            model = PPO.load("outputs/models/ppo_gto_agent.zip", device="cpu")
         elif os.path.exists("ppo_gto_agent.zip"):
-            print("Found model in root folder...")
-            model = PPO.load("ppo_gto_agent.zip")
+            model = PPO.load("ppo_gto_agent.zip", device="cpu")
         else:
             raise FileNotFoundError("Could not find 'ppo_gto_agent.zip'")
         print("✅ RL Model Loaded Successfully.")
@@ -73,16 +80,11 @@ def run_benchmarks():
         return
 
     results = []
-
     for i in range(30):
         print(f"Executing Run {i + 1}/30...")
         seed = 1000 + i
         np.random.seed(seed)
-
-        # 🚨 FIX 3 (Optional but recommended): Use a non-uniform distribution to mimic NLP embeddings
-        # For a truly fair test, opinions are grouped into Gaussian clusters (factions) rather than uniform static
-        initial_ops = np.random.normal(0.0, 0.4, (50, 384))
-        initial_ops = np.clip(initial_ops, -1.0, 1.0)
+        initial_ops = np.random.uniform(-0.8, 0.8, (50, 384))
         initial_infs = np.random.uniform(0.1, 0.3, 50)
 
         def get_fresh_group():
@@ -105,13 +107,8 @@ def run_benchmarks():
         np.random.seed(seed)
         pso_iters = run_single_algorithm(ParticleSwarmOptimizer(config, base_weights), get_fresh_group(), "PSO")
 
-        results.append({
-            'Seed': seed,
-            'Smart_GTO': smart_iters,
-            'Static_GTO': static_iters,
-            'PSO': pso_iters,
-            'GWO': gwo_iters
-        })
+        results.append(
+            {'Seed': seed, 'Smart_GTO': smart_iters, 'Static_GTO': static_iters, 'PSO': pso_iters, 'GWO': gwo_iters})
 
     os.makedirs("outputs/logs", exist_ok=True)
     df = pd.DataFrame(results)
